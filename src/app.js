@@ -5,11 +5,15 @@ const morgan = require('morgan');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { z } = require('zod');
+const multer = require('multer');
+const { createWorker } = require('tesseract.js');
 const { receiveStock, createOrder, transitionOrder } = require('./services/inventory');
+const { parseInvoiceText } = require('./services/invoice-import');
+const { saveRestockPreview, applyRestockImport } = require('./services/restock-import');
 const JWT_SECRET = process.env.JWT_SECRET || 'development-only-change-me';
 
 function createApp(db) {
-  const app = express(); app.use(helmet({ contentSecurityPolicy: false })); app.use(cors()); app.use(express.json()); app.use(morgan('tiny'));
+  const app = express(); const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 }, fileFilter: (_req, file, done) => done(null, /^image\/(png|jpe?g|webp)$/.test(file.mimetype)) }); app.use(helmet({ contentSecurityPolicy: false })); app.use(cors()); app.use(express.json()); app.use(morgan('tiny'));
   const sign = u => jwt.sign({ sub: u.id, role: u.role, name: u.name }, JWT_SECRET, { expiresIn: '8h' });
   const auth = (req,res,next) => { try { req.user = jwt.verify((req.headers.authorization || '').replace('Bearer ', ''), JWT_SECRET); next(); } catch { res.status(401).json({ error: 'Authentication required' }); } };
   const roles = (...allowed) => (req,res,next) => allowed.includes(req.user.role) ? next() : res.status(403).json({ error: 'Insufficient permission' });
@@ -36,6 +40,19 @@ function createApp(db) {
     res.json({ product: { ...updated, categoryId: updated.category_id, wholesalePrice: updated.wholesale_price, availabilityStatus: updated.availability_status, marketplaceVisible: !!updated.marketplace_visible, availableQuantity: updated.available_quantity } });
   } catch (e) { fail(res,e); } });
   app.post('/api/products', auth, roles('WHOLESALER'), (req,res)=>{try{const data=z.object({name:z.string().min(2),brand:z.string().min(2),composition:z.string().min(2),categoryId:z.string(),mrp:z.number().nonnegative(),wholesalePrice:z.number().nonnegative(),gstRate:z.number().min(0).default(0),minimumStock:z.number().int().nonnegative().default(0),marketplaceVisible:z.boolean().default(true),manufacturer:z.string().optional(),packSize:z.string().optional(),classification:z.string().optional(),description:z.string().optional(),imageUrl:z.string().url().optional()}).parse(req.body); const id=require('node:crypto').randomUUID(); db.prepare('INSERT INTO products(id,name,brand,composition,category_id,mrp,wholesale_price,gst_rate,minimum_stock,marketplace_visible,manufacturer,pack_size,classification,description,image_url) VALUES (@id,@name,@brand,@composition,@categoryId,@mrp,@wholesalePrice,@gstRate,@minimumStock,@marketplaceVisible,@manufacturer,@packSize,@classification,@description,@imageUrl)').run({...data,id,marketplaceVisible:data.marketplaceVisible?1:0});res.status(201).json({id});}catch(e){fail(res,e)}});
+  app.post('/api/restock/invoice-image', auth, roles('WHOLESALER'), upload.single('invoice'), async (req,res) => { try {
+    if (!req.file) return res.status(400).json({ error: 'Upload a PNG, JPG, JPEG, or WEBP invoice image (up to 8 MB)' });
+    const worker = await createWorker('eng');
+    let text;
+    try { ({ data: { text } } = await worker.recognize(req.file.buffer)); } finally { await worker.terminate(); }
+    const parsed = parseInvoiceText(text);
+    if (!parsed.items.length) return res.status(422).json({ error: 'No complete invoice lines were recognized. Ensure each line includes medicine, batch, expiry, quantity, and rate.', unparsedLines: parsed.unparsedLines });
+    const preview = saveRestockPreview(db, { filename: req.file.originalname, text, items: parsed.items, actorId: req.user.sub });
+    const unmatched = preview.items.filter(item => !item.product);
+    if (unmatched.length) return res.status(422).json({ error: 'Invoice was scanned but some medicines do not exactly match your catalogue. No stock was changed.', importId: preview.importId, unmatched: unmatched.map(item => item.productName), unparsedLines: parsed.unparsedLines });
+    const applied = applyRestockImport(db, { importId: preview.importId, actorId: req.user.sub });
+    res.status(201).json({ ...applied, extractedText: text, items: preview.items.map(item => ({ productId: item.product.id, productName: item.product.name, batchNumber: item.batchNumber, expiryDate: item.expiryDate, quantity: item.quantity, purchasePrice: item.purchasePrice })), unparsedLines: parsed.unparsedLines });
+  } catch (e) { fail(res,e); } });
   app.post('/api/inventory/receive',auth,roles('WHOLESALER'),(req,res)=>{try{const data=z.object({productId:z.string(),batchNumber:z.string().min(1),expiryDate:z.string().regex(/^\d{4}-\d{2}-\d{2}$/),quantity:z.number().int().positive(),purchasePrice:z.number().nonnegative(),sellingPrice:z.number().nonnegative().optional(),warehouse:z.string().optional(),notes:z.string().optional()}).parse(req.body);res.status(201).json({batchId:receiveStock(db,{...data,actorId:req.user.sub})});}catch(e){fail(res,e)}});
   app.get('/api/inventory/batches',auth,roles('WHOLESALER'),(_req,res)=>res.json({items:db.prepare(`SELECT b.*,p.name product_name,julianday(b.expiry_date)-julianday('now') days_remaining FROM inventory_batches b JOIN products p ON p.id=b.product_id ORDER BY b.expiry_date`).all()}));
   app.post('/api/orders',auth,roles('CUSTOMER'),(req,res)=>{try{const data=z.object({items:z.array(z.object({productId:z.string(),quantity:z.number().int().positive()})).min(1),shippingAddress:z.string().optional()}).parse(req.body);res.status(201).json({order:createOrder(db,{...data,customerId:req.user.sub,actorId:req.user.sub})});}catch(e){fail(res,e)}});

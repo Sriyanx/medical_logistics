@@ -64,3 +64,46 @@ test('customer cannot edit medicine catalogue fields', async (t) => {
   const response = await fetch(`${base}/api/products/product-1`, { method: 'PATCH', headers: { 'content-type': 'application/json', authorization: `Bearer ${customer.token}` }, body: JSON.stringify({ wholesalePrice: 1 }) });
   assert.equal(response.status, 403);
 });
+
+test('customer cannot upload invoice for restock', async (t) => {
+  const { server, base } = await boot(); t.after(() => server.close());
+  const customer = await login(base, 'citycare@example.test', 'DemoPass123!');
+  const response = await fetch(`${base}/api/restock/invoice-image`, { method: 'POST', headers: { authorization: `Bearer ${customer.token}` } });
+  assert.equal(response.status, 403);
+});
+
+test('wholesaler uploading invoice image extracts details and auto-updates stocks', async (t) => {
+  const fs = require('node:fs');
+  const imagePath = 'C:/temp/invoice-tests/test-invoice-1.png';
+  if (!fs.existsSync(imagePath)) return;
+  const { db, server, base } = await boot(); t.after(() => server.close());
+  const admin = await login(base, 'admin@apexmed.example.test', 'DemoPass123!');
+  
+  const fileBuffer = fs.readFileSync(imagePath);
+  const blob = new Blob([fileBuffer], { type: 'image/png' });
+  const form = new FormData();
+  form.append('invoice', blob, 'test-invoice-1.png');
+
+  const response = await fetch(`${base}/api/restock/invoice-image`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${admin.token}` },
+    body: form
+  });
+
+  assert.equal(response.status, 201);
+  const result = await response.json();
+  assert.equal(result.itemCount, 3);
+
+  // Verify batch was created in database
+  const batch = db.prepare("SELECT * FROM inventory_batches WHERE batch_number = 'PCT-A1'").get();
+  assert.ok(batch);
+  assert.equal(batch.quantity, 200);
+  assert.equal(batch.available_quantity, 200);
+  assert.equal(batch.purchase_price, 18.5);
+
+  // Verify stock transaction was recorded
+  const tx = db.prepare("SELECT * FROM stock_transactions WHERE batch_id = ?").get(batch.id);
+  assert.ok(tx);
+  assert.equal(tx.type, 'PURCHASE_RECEIVED');
+  assert.equal(tx.quantity, 200);
+});

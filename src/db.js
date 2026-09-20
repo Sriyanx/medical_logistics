@@ -52,7 +52,14 @@ CREATE TABLE IF NOT EXISTS requirements (id TEXT PRIMARY KEY, customer_id TEXT N
 CREATE TABLE IF NOT EXISTS invoices (id TEXT PRIMARY KEY, number TEXT NOT NULL UNIQUE, order_id TEXT NOT NULL UNIQUE REFERENCES orders(id), issued_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, payment_status TEXT NOT NULL DEFAULT 'PENDING');
 CREATE TABLE IF NOT EXISTS payments (id TEXT PRIMARY KEY, invoice_id TEXT NOT NULL REFERENCES invoices(id), amount REAL NOT NULL CHECK(amount > 0), method TEXT NOT NULL, reference_id TEXT, paid_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS suppliers (id TEXT PRIMARY KEY, name TEXT NOT NULL, contact_person TEXT, phone TEXT, email TEXT, address TEXT, gst_number TEXT, archived_at TEXT);
-CREATE TABLE IF NOT EXISTS notifications (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), type TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, read_at TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS restock_imports (
+  id TEXT PRIMARY KEY, filename TEXT NOT NULL, extracted_text TEXT, status TEXT NOT NULL CHECK(status IN ('SCANNED','APPLIED','FAILED')), item_count INTEGER NOT NULL DEFAULT 0,
+  actor_id TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, applied_at TEXT
+);
+CREATE TABLE IF NOT EXISTS restock_import_items (
+  id TEXT PRIMARY KEY, import_id TEXT NOT NULL REFERENCES restock_imports(id) ON DELETE CASCADE, product_id TEXT REFERENCES products(id),
+  raw_product_name TEXT NOT NULL, batch_number TEXT NOT NULL, expiry_date TEXT NOT NULL, quantity INTEGER NOT NULL, purchase_price REAL NOT NULL
+);
 `;
 
 function initializeDatabase(db) { db.exec(SCHEMA); return db; }
