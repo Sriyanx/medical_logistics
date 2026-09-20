@@ -1,0 +1,22 @@
+{
+  "name": "medical-wholesale-platform",
+  "version": "1.0.0",
+  "description": "B2B medical wholesale marketplace and inventory management MVP",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
+  "private": true,
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^13.0.3",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "helmet": "^8.3.0",
+    "jsonwebtoken": "^9.0.3",
+    "morgan": "^1.12.1",
+    "zod": "^4.6.5"
+  }
+}
