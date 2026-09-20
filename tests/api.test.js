@@ -36,3 +36,31 @@ test('customer cannot modify wholesaler inventory', async (t) => {
   const result = await fetch(`${base}/api/inventory/receive`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${auth.token}` }, body: JSON.stringify({}) });
   assert.equal(result.status, 403);
 });
+
+test('wholesaler can edit medicine category, wholesale price, availability, visibility and status', async (t) => {
+  const { db, server, base } = await boot(); t.after(() => server.close());
+  const admin = await login(base, 'admin@apexmed.example.test', 'DemoPass123!');
+  const headers = { 'content-type': 'application/json', authorization: `Bearer ${admin.token}` };
+  const categories = await (await fetch(`${base}/api/categories`, { headers })).json();
+  const current = db.prepare('SELECT category_id FROM products WHERE id = ?').get('product-1');
+  const category = categories.items.find(item => item.id !== current.category_id);
+  const response = await fetch(`${base}/api/products/product-1`, { method: 'PATCH', headers, body: JSON.stringify({ categoryId: category.id, wholesalePrice: 42, availabilityStatus: 'UNAVAILABLE', marketplaceVisible: false }) });
+  assert.equal(response.status, 200);
+  const { product } = await response.json();
+  assert.equal(product.categoryId, category.id);
+  assert.equal(product.wholesalePrice, 42);
+  assert.equal(product.availabilityStatus, 'UNAVAILABLE');
+  assert.equal(product.marketplaceVisible, false);
+  const persisted = db.prepare('SELECT * FROM products WHERE id = ?').get('product-1');
+  assert.equal(persisted.category_id, category.id);
+  assert.equal(persisted.wholesale_price, 42);
+  assert.equal(persisted.availability_status, 'UNAVAILABLE');
+  assert.equal(persisted.marketplace_visible, 0);
+});
+
+test('customer cannot edit medicine catalogue fields', async (t) => {
+  const { server, base } = await boot(); t.after(() => server.close());
+  const customer = await login(base, 'citycare@example.test', 'DemoPass123!');
+  const response = await fetch(`${base}/api/products/product-1`, { method: 'PATCH', headers: { 'content-type': 'application/json', authorization: `Bearer ${customer.token}` }, body: JSON.stringify({ wholesalePrice: 1 }) });
+  assert.equal(response.status, 403);
+});
