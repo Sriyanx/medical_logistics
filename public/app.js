@@ -99,11 +99,13 @@ function shell(content) {
         ['products', '💊 Catalogue'],
         ['inventory', '📦 Inventory & Batches'],
         ['orders', '🛒 Orders'],
+        ['invoices', '🧾 Tax Invoices'],
         ['requirements', '📋 Supply Requests']
       ]
     : [
         ['marketplace', '💊 Order Medicines'],
         ['orders', '📦 My Orders'],
+        ['invoices', '🧾 Invoices'],
         ['requirements', '📝 Request Medicine']
       ];
 
@@ -658,6 +660,10 @@ async function ordersView() {
         <h1>${isWholesaler ? 'Customer Orders Pipeline' : 'Your Pharmacy Orders'}</h1>
         <p>${isWholesaler ? 'Review, confirm, and update shipping progress for incoming pharmacy orders.' : 'Track order status and reserved stock allocations.'}</p>
       </div>
+      ${isWholesaler ? `
+      <div class="page-header-actions">
+        <button class="btn btn-secondary" onclick="go('invoices')">🧾 Invoices Register</button>
+      </div>` : ''}
     </div>
 
     <div class="card-table-wrap">
@@ -669,12 +675,13 @@ async function ordersView() {
           <thead>
             <tr>
               <th>Order Number</th>
+              ${isWholesaler ? '<th>Pharmacy Customer</th>' : ''}
               <th>Placed Date</th>
               <th>Total Items</th>
               <th>Grand Total</th>
               <th>Payment Status</th>
               <th>Order Status</th>
-              ${isWholesaler ? '<th>Action / Status Control</th>' : ''}
+              ${isWholesaler ? '<th>Actions</th>' : ''}
             </tr>
           </thead>
           <tbody>
@@ -688,11 +695,12 @@ async function ordersView() {
 
 function renderOrderRows(orders, isWholesaler) {
   if (!orders.length) {
-    return `<tr><td colspan="${isWholesaler ? 7 : 6}" style="text-align: center; padding: 32px; color: var(--text-muted);">No orders found.</td></tr>`;
+    return `<tr><td colspan="${isWholesaler ? 8 : 6}" style="text-align: center; padding: 32px; color: var(--text-muted);">No orders found.</td></tr>`;
   }
   return orders
     .map(o => {
       const isPending = o.status === 'PENDING';
+      const isConfirmedOrBeyond = ['CONFIRMED', 'PROCESSING', 'PACKED', 'DISPATCHED', 'DELIVERED'].includes(o.status);
       const statusBadge =
         o.status === 'CONFIRMED' || o.status === 'DELIVERED'
           ? 'badge-success'
@@ -702,37 +710,54 @@ function renderOrderRows(orders, isWholesaler) {
           ? 'badge-danger'
           : 'badge-info';
 
+      const paymentBadge =
+        o.payment_status === 'PAID'
+          ? 'badge-success'
+          : o.payment_status === 'PARTIAL'
+          ? 'badge-info'
+          : 'badge-warning';
+
       return `
       <tr>
         <td><strong>#${esc(o.number)}</strong></td>
+        ${isWholesaler ? `<td><strong>${esc(o.customer_name || 'Pharmacy')}</strong></td>` : ''}
         <td>${new Date(o.created_at).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
         <td>${o.item_count} items</td>
         <td><strong style="font-family: var(--font-mono); color: var(--primary);">${money(o.grand_total)}</strong></td>
-        <td><span class="badge badge-warning">${esc(o.payment_status)}</span></td>
+        <td><span class="badge ${paymentBadge}">${esc(o.payment_status || 'PENDING')}</span></td>
         <td><span class="badge ${statusBadge}">${esc(o.status)}</span></td>
         ${
           isWholesaler
             ? `
           <td>
-            ${
-              isPending
-                ? `
-              <div style="display: flex; gap: 8px;">
+            <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
+              ${
+                isPending
+                  ? `
                 <button class="btn btn-sm btn-success" onclick="updateOrderStatus('${o.id}', 'CONFIRMED')">✓ Confirm</button>
                 <button class="btn btn-sm btn-danger" onclick="updateOrderStatus('${o.id}', 'REJECTED')">✕ Reject</button>
-              </div>
-            `
-                : `
-              <select onchange="updateOrderStatus('${o.id}', this.value)" style="padding: 4px 8px; font-size: 13px; border-radius: 4px;">
-                <option value="" disabled selected>Update status...</option>
-                <option value="PROCESSING">Processing</option>
-                <option value="PACKED">Packed</option>
-                <option value="DISPATCHED">Dispatched</option>
-                <option value="DELIVERED">Delivered</option>
-                <option value="CANCELLED">Cancelled</option>
-              </select>
-            `
-            }
+              `
+                  : `
+                <select onchange="updateOrderStatus('${o.id}', this.value)" style="padding: 4px 8px; font-size: 12px; border-radius: 4px; max-width: 120px;">
+                  <option value="" disabled selected>Status...</option>
+                  <option value="PROCESSING">Processing</option>
+                  <option value="PACKED">Packed</option>
+                  <option value="DISPATCHED">Dispatched</option>
+                  <option value="DELIVERED">Delivered</option>
+                  <option value="CANCELLED">Cancelled</option>
+                </select>
+              `
+              }
+              ${
+                isConfirmedOrBeyond
+                  ? `
+                <button class="btn btn-sm btn-primary" onclick="handleGenerateOrViewInvoice('${o.id}')" title="Generate or View GST Tax Invoice">
+                  🧾 Tax Invoice
+                </button>
+              `
+                  : ''
+              }
+            </div>
           </td>
         `
             : ''
@@ -750,6 +775,459 @@ async function updateOrderStatus(orderId, status) {
       body: JSON.stringify({ status })
     });
     showToast(`Order status updated to ${status}.`, 'success');
+    render();
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+async function handleGenerateOrViewInvoice(orderId) {
+  try {
+    // Check if invoice already exists
+    const invRes = await api('/invoices/by-order/' + orderId).catch(() => null);
+    if (invRes && invRes.invoice) {
+      openInvoiceModal(invRes.invoice.id);
+      return;
+    }
+
+    // Generate new tax invoice
+    const genRes = await api('/invoices/generate', {
+      method: 'POST',
+      body: JSON.stringify({ orderId })
+    });
+    showToast('GST Tax Invoice generated successfully!', 'success');
+    openInvoiceModal(genRes.invoice.id);
+    if (state.page === 'orders' || state.page === 'invoices') {
+      render();
+    }
+  } catch (err) {
+    showToast(err.message, 'danger');
+  }
+}
+
+/* ==========================================================================
+   VIEW: Invoices Register (Wholesaler & Pharmacy Customer)
+   ========================================================================== */
+async function invoicesView() {
+  const d = await api('/invoices');
+  const isWholesaler = state.user.role === 'WHOLESALER';
+  const invoices = d.items || [];
+
+  const totalBilled = invoices.reduce((s, i) => s + (Number(i.grand_total) || 0), 0);
+  const totalPaid = invoices.filter(i => i.payment_status === 'PAID').reduce((s, i) => s + (Number(i.grand_total) || 0), 0);
+  const totalPending = totalBilled - totalPaid;
+
+  return shell(`
+    <div class="page-header">
+      <div class="page-header-text">
+        <h1>${isWholesaler ? 'Pharmaceutical Tax Invoices Register' : 'Your Wholesale Invoices'}</h1>
+        <p>${isWholesaler ? 'Issue GST-compliant B2B drug tax invoices, monitor payments, and export printable vouchers.' : 'View, verify batch allocations, and print tax invoices for your records.'}</p>
+      </div>
+      <div class="page-header-actions">
+        <button class="btn btn-secondary" onclick="go('orders')">🛒 View Orders</button>
+      </div>
+    </div>
+
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-label">Total Invoiced Amount</div>
+        <div class="metric-value" style="font-size: 26px;">${money(totalBilled)}</div>
+        <div class="metric-note">${invoices.length} invoices issued</div>
+      </div>
+      <div class="metric-card success">
+        <div class="metric-label">Settled / Paid Amount</div>
+        <div class="metric-value" style="font-size: 26px;">${money(totalPaid)}</div>
+        <div class="metric-note">Collected revenue</div>
+      </div>
+      <div class="metric-card ${totalPending > 0 ? 'warning' : ''}">
+        <div class="metric-label">Outstanding Receivables</div>
+        <div class="metric-value" style="font-size: 26px;">${money(totalPending)}</div>
+        <div class="metric-note">Pending payment settlement</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-label">Total Invoices</div>
+        <div class="metric-value">${invoices.length}</div>
+        <div class="metric-note">GST compliant vouchers</div>
+      </div>
+    </div>
+
+    <div class="card-table-wrap" style="margin-top: 24px;">
+      <div class="table-toolbar">
+        <h2>Invoices List (${invoices.length})</h2>
+        <div class="table-search">
+          <span style="color: var(--text-muted); margin-right: 8px;">🔍</span>
+          <input type="text" placeholder="Filter by invoice #, customer..." oninput="filterInvoices(this.value)">
+        </div>
+      </div>
+      <div class="table-responsive">
+        <table class="data-table" id="invoices-table">
+          <thead>
+            <tr>
+              <th>Invoice Number</th>
+              <th>Issued Date</th>
+              ${isWholesaler ? '<th>Billed To (Pharmacy)</th>' : ''}
+              <th>Order Ref</th>
+              <th>Taxable Subtotal</th>
+              <th>GST (CGST+SGST)</th>
+              <th>Grand Total</th>
+              <th>Payment Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${renderInvoiceRows(invoices, isWholesaler)}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `);
+}
+
+function renderInvoiceRows(invoices, isWholesaler) {
+  if (!invoices.length) {
+    return `<tr><td colspan="${isWholesaler ? 9 : 8}" style="text-align: center; padding: 32px; color: var(--text-muted);">No invoices generated yet.</td></tr>`;
+  }
+  return invoices
+    .map(inv => {
+      const paymentBadge =
+        inv.payment_status === 'PAID'
+          ? 'badge-success'
+          : inv.payment_status === 'PARTIAL'
+          ? 'badge-info'
+          : 'badge-warning';
+
+      return `
+      <tr>
+        <td>
+          <button class="btn-link" onclick="openInvoiceModal('${inv.id}')" style="font-family: var(--font-mono); font-weight: 700; color: var(--primary); text-decoration: underline; background: none; border: none; cursor: pointer; padding: 0;">
+            ${esc(inv.number)}
+          </button>
+        </td>
+        <td>${new Date(inv.issued_at || inv.created_at || Date.now()).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' })}</td>
+        ${isWholesaler ? `<td><strong>${esc(inv.customer_name || 'Pharmacy')}</strong></td>` : ''}
+        <td><code style="background: #f4f5f7; padding: 2px 6px; border-radius: 4px;">#${esc(inv.order_number || inv.order_id?.slice(0, 8))}</code></td>
+        <td>${money(inv.subtotal)}</td>
+        <td><span style="color: var(--text-muted); font-size: 13px;">${money(inv.gst_total)}</span></td>
+        <td><strong style="color: var(--primary); font-family: var(--font-mono); font-size: 15px;">${money(inv.grand_total)}</strong></td>
+        <td><span class="badge ${paymentBadge}">${esc(inv.payment_status || 'PENDING')}</span></td>
+        <td>
+          <div style="display: flex; gap: 6px;">
+            <button class="btn btn-sm btn-primary" onclick="openInvoiceModal('${inv.id}')" title="View / Print Tax Invoice">
+              👁️ View / Print
+            </button>
+            ${
+              isWholesaler && inv.payment_status !== 'PAID'
+                ? `
+              <button class="btn btn-sm btn-success" onclick="openPaymentModal('${inv.id}', '${esc(inv.number)}', ${inv.grand_total})" title="Record Customer Payment">
+                💳 Record Payment
+              </button>
+            `
+                : ''
+            }
+          </div>
+        </td>
+      </tr>
+    `;
+    })
+    .join('');
+}
+
+function filterInvoices(query) {
+  const q = query.toLowerCase().trim();
+  const rows = $$('#invoices-table tbody tr');
+  rows.forEach(r => {
+    const text = r.textContent.toLowerCase();
+    r.style.display = text.includes(q) ? '' : 'none';
+  });
+}
+
+/* ==========================================================================
+   MODAL: Full-Page Printable Pharmaceutical Tax Invoice
+   ========================================================================== */
+async function openInvoiceModal(invoiceId) {
+  try {
+    const res = await api('/invoices/' + invoiceId);
+    const inv = res.invoice;
+    if (!inv) throw new Error('Invoice data not found');
+
+    const seller = inv.seller || {};
+    const buyer = inv.buyer || {};
+    const totals = inv.totals || {};
+    const isWholesaler = state.user && state.user.role === 'WHOLESALER';
+
+    const invoiceContentHtml = `
+      <div class="invoice-container" id="printable-invoice">
+        <div class="invoice-header">
+          <div>
+            <h1 class="invoice-seller-title">${esc(seller.name || 'Apex MedSupply Wholesale Distributors Pvt. Ltd.')}</h1>
+            <div class="invoice-seller-subtitle">${esc(seller.tagline || 'Authorized Pharmaceutical Wholesale Distribution')}</div>
+            <div style="font-size: 13px; color: var(--text-muted); max-width: 480px; margin-bottom: 8px;">
+              ${esc(seller.address)}
+            </div>
+            <table class="invoice-meta-table">
+              <tr>
+                <td><strong>GSTIN:</strong> <code>${esc(seller.gstin)}</code></td>
+                <td><strong>PAN:</strong> ${esc(seller.pan)}</td>
+              </tr>
+              <tr>
+                <td><strong>Drug Lic (DL):</strong> ${esc(seller.drugLicense)}</td>
+                <td><strong>FSSAI:</strong> ${esc(seller.fssai)}</td>
+              </tr>
+              <tr>
+                <td><strong>Phone:</strong> ${esc(seller.phone)}</td>
+                <td><strong>Email:</strong> ${esc(seller.email)}</td>
+              </tr>
+            </table>
+          </div>
+          <div class="invoice-title-block">
+            <h2 class="invoice-main-heading">TAX INVOICE</h2>
+            <div class="invoice-badge-original">ORIGINAL FOR RECIPIENT</div>
+            <table class="invoice-meta-table" style="margin-left: auto;">
+              <tr>
+                <td style="text-align: right; color: var(--text-muted);">Invoice No:</td>
+                <td><strong style="font-family: var(--font-mono); font-size: 15px; color: #0052cc;">${esc(inv.number)}</strong></td>
+              </tr>
+              <tr>
+                <td style="text-align: right; color: var(--text-muted);">Invoice Date:</td>
+                <td><strong>${new Date(inv.issued_at || inv.created_at || Date.now()).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' })}</strong></td>
+              </tr>
+              <tr>
+                <td style="text-align: right; color: var(--text-muted);">Order Ref:</td>
+                <td><code>#${esc(inv.order_number)}</code></td>
+              </tr>
+              <tr>
+                <td style="text-align: right; color: var(--text-muted);">Payment Terms:</td>
+                <td><strong>${esc(inv.payment_status || 'PENDING')} (30 Days)</strong></td>
+              </tr>
+              <tr>
+                <td style="text-align: right; color: var(--text-muted);">Place of Supply:</td>
+                <td><strong>Maharashtra (27)</strong></td>
+              </tr>
+            </table>
+          </div>
+        </div>
+
+        <div class="invoice-parties-grid">
+          <div class="party-block">
+            <h4>Billed To / Buyer (Pharmacy)</h4>
+            <div style="font-size: 15px; font-weight: 700; color: #091e42; margin-bottom: 2px;">
+              ${esc(buyer.businessName || buyer.name)}
+            </div>
+            <div><strong>Contact:</strong> ${esc(buyer.name)} · ${esc(buyer.phone)}</div>
+            <div><strong>Email:</strong> ${esc(buyer.email)}</div>
+            <div><strong>Delivery Address:</strong> ${esc(buyer.address)}</div>
+            <div><strong>GSTIN:</strong> <code>${esc(buyer.gstin || '27AABCP5678Q1Z2')}</code> &nbsp; <strong>DL No:</strong> ${esc(buyer.drugLicense || 'DL-20/21B-MH-2023')}</div>
+          </div>
+          <div class="party-block">
+            <h4>Consignee / Shipped To</h4>
+            <div style="font-size: 15px; font-weight: 700; color: #091e42; margin-bottom: 2px;">
+              ${esc(buyer.businessName || buyer.name)}
+            </div>
+            <div><strong>Destination:</strong> ${esc(inv.shipping_address || buyer.address)}</div>
+            <div><strong>Transport / Dispatch:</strong> Direct Wholesale Logistics Courier</div>
+            <div><strong>Reverse Charge Applicable:</strong> No (Regular B2B Tax Invoice)</div>
+          </div>
+        </div>
+
+        <div class="table-responsive">
+          <table class="invoice-items-table">
+            <thead>
+              <tr>
+                <th style="width: 30px;">#</th>
+                <th>Medicine Description & Generic</th>
+                <th>HSN</th>
+                <th>Allocated Batch & Expiry</th>
+                <th>Pack</th>
+                <th class="text-right">Qty</th>
+                <th class="text-right">Rate (₹)</th>
+                <th class="text-right">Taxable (₹)</th>
+                <th class="text-right">CGST</th>
+                <th class="text-right">SGST</th>
+                <th class="text-right">Total (₹)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${(inv.items || [])
+                .map(
+                  (it, idx) => `
+                <tr>
+                  <td class="text-center">${idx + 1}</td>
+                  <td>
+                    <strong>${esc(it.name)}</strong>
+                    <div style="font-size: 11px; color: var(--text-muted);">${esc(it.composition || it.brand)}</div>
+                  </td>
+                  <td><code>${esc(it.hsnCode || '300490')}</code></td>
+                  <td>
+                    <div style="font-weight: 600; font-family: var(--font-mono); font-size: 11px;">
+                      ${esc(it.batchNumber)}
+                    </div>
+                    <div style="font-size: 11px; color: var(--text-muted);">Exp: ${esc(it.expiryDate)}</div>
+                  </td>
+                  <td>${esc(it.packSize || '1 Strip')}</td>
+                  <td class="text-right"><strong>${it.quantity}</strong></td>
+                  <td class="text-right">${money(it.unitPrice)}</td>
+                  <td class="text-right">${money(it.taxableValue)}</td>
+                  <td class="text-right">${it.cgstRate}%<br><small style="color:var(--text-muted);">${money(it.cgstAmount)}</small></td>
+                  <td class="text-right">${it.sgstRate}%<br><small style="color:var(--text-muted);">${money(it.sgstAmount)}</small></td>
+                  <td class="text-right"><strong style="color: #0052cc;">${money(it.lineTotal)}</strong></td>
+                </tr>
+              `
+                )
+                .join('')}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="invoice-summary-grid">
+          <div class="invoice-bank-card">
+            <h5>Bank Remittance Details (NEFT / RTGS)</h5>
+            <div><strong>Bank Name:</strong> ${esc(seller.bank?.name || 'HDFC Bank Ltd')}</div>
+            <div><strong>Account Name:</strong> ${esc(seller.name)}</div>
+            <div><strong>Account No:</strong> <code style="font-weight: 700; font-size: 13px;">${esc(seller.bank?.accountNumber || '50200088992211')}</code></div>
+            <div><strong>IFSC Code:</strong> <code>${esc(seller.bank?.ifsc || 'HDFC0001234')}</code> (Branch: ${esc(seller.bank?.branch)})</div>
+            <div style="margin-top: 8px; font-weight: 600; color: #091e42;">
+              Amount in Words: <em>${esc(totals.amountInWords || '')}</em>
+            </div>
+          </div>
+
+          <div>
+            <table class="invoice-totals-table">
+              <tr>
+                <td>Total Taxable Value:</td>
+                <td class="text-right"><strong>${money(totals.taxableAmount)}</strong></td>
+              </tr>
+              <tr>
+                <td>Central GST (CGST 6%):</td>
+                <td class="text-right">${money(totals.cgstAmount)}</td>
+              </tr>
+              <tr>
+                <td>State GST (SGST 6%):</td>
+                <td class="text-right">${money(totals.sgstAmount)}</td>
+              </tr>
+              <tr>
+                <td>Total GST Tax:</td>
+                <td class="text-right"><strong>${money(totals.totalGst)}</strong></td>
+              </tr>
+              <tr class="grand-total">
+                <td>Invoice Grand Total:</td>
+                <td class="text-right">${money(totals.grandTotal)}</td>
+              </tr>
+            </table>
+          </div>
+        </div>
+
+        <div class="invoice-footer-terms">
+          <div>
+            <strong>Terms & Conditions:</strong>
+            <ol class="invoice-terms-list">
+              <li>Goods once sold will not be accepted back without prior written batch verification.</li>
+              <li>Breakage/shortage must be notified within 48 hours of shipment delivery.</li>
+              <li>Interest @18% p.a. charged on invoices unpaid past stipulated credit period.</li>
+              <li>Subject to Mumbai Jurisdiction only.</li>
+            </ol>
+          </div>
+          <div class="invoice-signatory">
+            <div class="signatory-box"></div>
+            <strong>For ${esc(seller.name || 'Apex MedSupply Wholesale Distributors')}</strong>
+            <span style="font-size: 10px; color: var(--text-muted);">(Authorized Signatory / Digitally Generated)</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    openModal(
+      `Tax Invoice: ${inv.number}`,
+      invoiceContentHtml,
+      `
+      <button type="button" class="btn btn-secondary" onclick="closeModal()">Close</button>
+      ${
+        isWholesaler && inv.payment_status !== 'PAID'
+          ? `
+        <button type="button" class="btn btn-success" onclick="openPaymentModal('${inv.id}', '${esc(inv.number)}', ${totals.grandTotal})">💳 Record Payment</button>
+      `
+          : ''
+      }
+      <button type="button" class="btn btn-primary" onclick="window.print()">🖨️ Print / Save as PDF</button>
+    `
+    );
+  } catch (err) {
+    showToast('Failed to load invoice: ' + err.message, 'danger');
+  }
+}
+
+/* ==========================================================================
+   MODAL: Record Payment for Invoice
+   ========================================================================== */
+function openPaymentModal(invoiceId, invoiceNumber, grandTotal) {
+  openModal(
+    `Record Payment: ${invoiceNumber}`,
+    `
+    <form id="payment-form" onsubmit="handlePaymentSubmit(event, '${invoiceId}')">
+      <div style="background: #f4f5f7; padding: 14px; border-radius: 6px; margin-bottom: 16px; font-size: 14px;">
+        <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+          <span>Invoice Number:</span>
+          <strong>${esc(invoiceNumber)}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span>Total Invoiced Amount:</span>
+          <strong style="color: var(--primary); font-family: var(--font-mono); font-size: 16px;">${money(grandTotal)}</strong>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Payment Settlement Status</label>
+        <select name="paymentStatus" required>
+          <option value="PAID" selected>PAID (Full Settlement)</option>
+          <option value="PARTIAL">PARTIAL (Advance / Partial Payment)</option>
+          <option value="PENDING">PENDING (Pending Cleared Funds)</option>
+          <option value="OVERDUE">OVERDUE (Payment Delayed)</option>
+        </select>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Received Amount (₹)</label>
+          <input type="number" name="amount" min="0" step="0.01" value="${grandTotal}" required>
+        </div>
+        <div class="form-group">
+          <label>Payment Mode</label>
+          <select name="method" required>
+            <option value="NEFT/RTGS" selected>Bank NEFT / RTGS</option>
+            <option value="UPI/QR">UPI / QR Code</option>
+            <option value="CHEQUE">Bank Cheque / Draft</option>
+            <option value="CASH">Cash on Delivery</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Transaction / UTR / Cheque Reference</label>
+        <input type="text" name="referenceId" placeholder="e.g. UTR1234567890 or Cheque #098765" value="UTR-${Date.now().toString().slice(-8)}">
+      </div>
+    </form>
+  `,
+    `
+    <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+    <button type="submit" form="payment-form" class="btn btn-success">Save Payment Receipt →</button>
+  `
+  );
+}
+
+async function handlePaymentSubmit(e, invoiceId) {
+  e.preventDefault();
+  const f = Object.fromEntries(new FormData(e.target));
+  try {
+    await api('/invoices/' + invoiceId + '/payment', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        paymentStatus: f.paymentStatus,
+        amount: Number(f.amount),
+        method: f.method,
+        referenceId: f.referenceId || undefined
+      })
+    });
+    closeModal();
+    showToast('Payment receipt recorded successfully!', 'success');
     render();
   } catch (err) {
     showToast(err.message, 'danger');
@@ -1293,6 +1771,8 @@ async function render() {
       viewHtml = await marketplaceView();
     } else if (state.page === 'orders') {
       viewHtml = await ordersView();
+    } else if (state.page === 'invoices') {
+      viewHtml = await invoicesView();
     } else if (state.page === 'requirements') {
       viewHtml = await requirementsView();
     } else {

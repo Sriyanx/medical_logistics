@@ -1,0 +1,11 @@
+Paracetamol 500mg
+Batch: PAR001
+Expiry: 2027-12-31
+Quantity: 100
+Price: 25.50
+
+Amoxicillin 250mg
+Batch: AMX002
+Expiry: 2028-06-30
+Quantity: 50
+Price: 45.00
