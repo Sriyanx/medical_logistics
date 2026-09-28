@@ -54,6 +54,33 @@ function createApp(db) {
 
   app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
+  // Medicine name autocomplete
+  let medicineNames = [];
+  try {
+    medicineNames = require('../medicine-names.json');
+    console.log(`Loaded ${medicineNames.length} medicine names for autocomplete`);
+  } catch (e) {
+    console.warn('Medicine names database not found, autocomplete disabled');
+  }
+
+  app.get('/api/medicines/autocomplete', (req, res) => {
+    try {
+      const query = req.query.q?.toLowerCase().trim() || '';
+      if (!query || query.length < 2) {
+        return res.json({ suggestions: [] });
+      }
+      
+      // Filter medicines that contain the query string (case-insensitive)
+      const matches = medicineNames
+        .filter(name => name.toLowerCase().includes(query))
+        .slice(0, 50); // Limit to 50 results
+      
+      res.json({ suggestions: matches });
+    } catch (e) {
+      fail(res, e);
+    }
+  });
+
   // Auth routes
   app.post('/api/auth/register', async (req, res) => {
     try {

@@ -1616,8 +1616,19 @@ function openAddProductModal() {
     <form id="add-product-form" onsubmit="handleAddProductSubmit(event)">
       <div class="form-row">
         <div class="form-group">
-          <label>Medicine Name</label>
-          <input type="text" name="name" placeholder="e.g. Amoxicillin 500mg" required>
+          <label>Medicine Name <small style="color: var(--text-muted);">(Start typing to see suggestions from 251K+ medicines)</small></label>
+          <div style="position: relative;">
+            <input 
+              type="text" 
+              id="medicine-name-input" 
+              name="name" 
+              placeholder="e.g. Amoxicillin 500mg" 
+              autocomplete="off"
+              oninput="handleMedicineNameInput(this, 'medicine-name-suggestions')"
+              onfocus="handleMedicineNameInput(this, 'medicine-name-suggestions')"
+              required>
+            <div id="medicine-name-suggestions" class="autocomplete-dropdown"></div>
+          </div>
         </div>
         <div class="form-group">
           <label>Brand / Manufacturer</label>
@@ -1696,8 +1707,19 @@ function openRequestModal() {
     `
     <form id="request-form" onsubmit="handleRequestSubmit(event)">
       <div class="form-group">
-        <label>Medicine Name</label>
-        <input type="text" name="medicineName" placeholder="e.g. Remdesivir 100mg" required>
+        <label>Medicine Name <small style="color: var(--text-muted);">(Start typing to see suggestions from 251K+ medicines)</small></label>
+        <div style="position: relative;">
+          <input 
+            type="text" 
+            id="request-medicine-name-input" 
+            name="medicineName" 
+            placeholder="e.g. Remdesivir 100mg" 
+            autocomplete="off"
+            oninput="handleMedicineNameInput(this, 'request-medicine-suggestions')"
+            onfocus="handleMedicineNameInput(this, 'request-medicine-suggestions')"
+            required>
+          <div id="request-medicine-suggestions" class="autocomplete-dropdown"></div>
+        </div>
       </div>
       <div class="form-group">
         <label>Composition / Formula (Optional)</label>
@@ -1794,3 +1816,73 @@ async function render() {
 
 // Initial render
 render();
+
+/* ==========================================================================
+   MEDICINE NAME AUTOCOMPLETE
+   ========================================================================== */
+let medicineAutocompleteTimeout = null;
+
+async function handleMedicineNameInput(inputEl, dropdownId) {
+  const query = inputEl.value.trim();
+  const dropdown = document.getElementById(dropdownId);
+  
+  if (!dropdown) return;
+  
+  // Clear previous timeout
+  if (medicineAutocompleteTimeout) {
+    clearTimeout(medicineAutocompleteTimeout);
+  }
+  
+  // Hide dropdown if query is too short
+  if (query.length < 2) {
+    dropdown.style.display = 'none';
+    return;
+  }
+  
+  // Debounce API calls (300ms delay)
+  medicineAutocompleteTimeout = setTimeout(async () => {
+    try {
+      const res = await fetch(`/api/medicines/autocomplete?q=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      const suggestions = data.suggestions || [];
+      
+      if (suggestions.length === 0) {
+        dropdown.style.display = 'none';
+        return;
+      }
+      
+      // Render suggestions
+      dropdown.innerHTML = suggestions
+        .map(name => `<div class="autocomplete-item" onclick="selectMedicineSuggestion('${esc(name)}', '${dropdownId}')">${esc(name)}</div>`)
+        .join('');
+      
+      dropdown.style.display = 'block';
+    } catch (err) {
+      console.error('Autocomplete error:', err);
+      dropdown.style.display = 'none';
+    }
+  }, 300);
+}
+
+function selectMedicineSuggestion(medicineName, dropdownId) {
+  // Find the input element associated with this dropdown
+  const dropdown = document.getElementById(dropdownId);
+  if (!dropdown) return;
+  
+  const inputEl = dropdown.previousElementSibling;
+  if (inputEl && inputEl.tagName === 'INPUT') {
+    inputEl.value = medicineName;
+  }
+  
+  // Hide dropdown
+  dropdown.style.display = 'none';
+}
+
+// Close autocomplete dropdowns when clicking outside
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.form-group')) {
+    document.querySelectorAll('.autocomplete-dropdown').forEach(d => {
+      d.style.display = 'none';
+    });
+  }
+});
