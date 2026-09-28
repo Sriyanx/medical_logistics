@@ -2,3 +2,8 @@ node_modules/
 data/
 .env
 coverage/
+medicine-names.json
+*.log
+.DS_Store
+dist/
+build/
