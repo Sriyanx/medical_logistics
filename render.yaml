@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: medisales-api
+    runtime: node
+    region: singapore
+    plan: starter
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_PATH
+        value: /var/data/medical.db
+    disk:
+      name: medisales-data
+      mountPath: /var/data
+      sizeGB: 1

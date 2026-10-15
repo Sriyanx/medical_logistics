@@ -10,7 +10,7 @@
       "versionCode": 1
     },
     "extra": {
-      "apiUrl": "http://10.0.2.2:3000/api"
+      "apiUrl": "https://YOUR-RENDER-SERVICE.onrender.com/api"
     }
   }
 }

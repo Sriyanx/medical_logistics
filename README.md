@@ -52,3 +52,7 @@ This is an MVP deliberately built on SQLite to be self-contained. Before deployi
 ## Mobile app
 
 The `mobile/` directory contains the React Native/Expo MediSales app. See [`mobile/README.md`](mobile/README.md) for setup, API configuration, and Android release steps.
+
+## Production hosting
+
+Render deployment configuration is in [`render.yaml`](render.yaml). Follow [`DEPLOYMENT.md`](DEPLOYMENT.md) to provision the API with managed HTTPS and a persistent SQLite disk.

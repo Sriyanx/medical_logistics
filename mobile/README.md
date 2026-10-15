@@ -20,7 +20,13 @@ $env:EXPO_PUBLIC_API_URL="http://192.168.1.10:3000/api"
 $env:EXPO_PUBLIC_API_URL="http://10.0.2.2:3000/api"
 ```
 
-Use a reachable HTTPS URL for production. Do not put JWT secrets or GitHub tokens in the mobile app.
+Use a reachable HTTPS URL for production. The committed mobile configuration uses a placeholder until Render creates your service URL:
+
+```text
+https://YOUR-RENDER-SERVICE.onrender.com/api
+```
+
+Do not put JWT secrets or GitHub tokens in the mobile app.
 
 ## Included mobile flows
 

@@ -14,7 +14,7 @@ function seedDemo(db) {
   medicines.forEach((m,index) => {
     const productId = `product-${index+1}`; const price = 18 + index * 2; const visible = index !== 29 ? 1 : 0;
     db.prepare('INSERT INTO products (id,name,brand,composition,category_id,manufacturer,pack_size,classification,mrp,wholesale_price,gst_rate,minimum_stock,marketplace_visible,availability_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(productId,m[0],m[1],m[2],categoryIds[m[3]],index%3?'Fictional Pharma Labs':null,index%4?'10 x 10 Tablets':null,index%2?'OTC':null,price*1.25,price,12,30,visible,'AVAILABLE');
-    const qty = index === 5 ? 12 : 80 + index * 7; const batchId = `batch-${index+1}`; const expiry = index === 3 ? '2026-10-15' : `2027-${String((index%10)+1).padStart(2,'0')}-28`;
+    const qty = index === 5 ? 12 : 80 + index * 7; const batchId = `batch-${index+1}`; const expiry = index === 3 ? '2026-12-15' : `2027-${String((index%10)+1).padStart(2,'0')}-28`;
     db.prepare('INSERT INTO inventory_batches (id,product_id,batch_number,expiry_date,quantity,reserved_quantity,available_quantity,purchase_price,selling_price,warehouse) VALUES (?,?,?,?,?,?,?,?,?,?)').run(batchId,productId,`APX-${1000+index}`,expiry,qty,0,qty,price*.65,price,'Main Warehouse');
     db.prepare('INSERT INTO stock_transactions (id,product_id,batch_id,type,quantity,actor_id,notes) VALUES (?,?,?,?,?,?,?)').run(id(),productId,batchId,'PURCHASE_RECEIVED',qty,'wholesaler-1','Initial demo stock');
   });

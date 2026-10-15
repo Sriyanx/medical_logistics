@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const DEFAULT_API_URL = 'http://10.0.2.2:3000/api';
+const DEFAULT_API_URL = 'https://YOUR-RENDER-SERVICE.onrender.com/api';
 const API_URL = (process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_URL).replace(/\/$/, '');
 
 let session = { token: null, user: null };
