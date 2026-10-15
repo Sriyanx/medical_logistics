@@ -2,7 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const Database = require('better-sqlite3');
 
-const SCHEMA = `
+const SQLITE_SCHEMA = `
 PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE,
@@ -62,6 +62,23 @@ CREATE TABLE IF NOT EXISTS restock_import_items (
 );
 `;
 
-function initializeDatabase(db) { db.exec(SCHEMA); return db; }
-function openDatabase(filename = path.join(process.cwd(), 'data', 'medical.db')) { fs.mkdirSync(path.dirname(filename), { recursive: true }); const db = new Database(filename); initializeDatabase(db); return db; }
-module.exports = { initializeDatabase, openDatabase };
+function resolveDatabaseConfig(env = process.env) {
+  if (env.DATABASE_URL && env.DATABASE_URL.trim()) return { dialect: 'postgres', connectionString: env.DATABASE_URL.trim() };
+  if (env.NODE_ENV === 'test' || env.DATABASE_PATH === ':memory:' || env.USE_SQLITE === 'true') return { dialect: 'sqlite', filename: env.DATABASE_PATH || ':memory:' };
+  throw new Error('DATABASE_URL is required in production; set NODE_ENV=test for SQLite tests');
+}
+
+function initializeDatabase(db) { db.exec(SQLITE_SCHEMA); return db; }
+function openDatabase(filename) {
+  const config = filename && typeof filename === 'string' ? { dialect: 'sqlite', filename } : resolveDatabaseConfig(process.env);
+  if (config.dialect === 'postgres') {
+    const { openPostgresDatabase, initializePostgresDatabase } = require('./db-postgres');
+    const db = openPostgresDatabase(config.connectionString);
+    initializePostgresDatabase(db);
+    return db;
+  }
+  const sqliteFilename = config.filename || path.join(process.cwd(), 'data', 'medical.db');
+  if (sqliteFilename !== ':memory:') fs.mkdirSync(path.dirname(sqliteFilename), { recursive: true });
+  return initializeDatabase(new Database(sqliteFilename));
+}
+module.exports = { SQLITE_SCHEMA, initializeDatabase, openDatabase, resolveDatabaseConfig };

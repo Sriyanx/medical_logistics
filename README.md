@@ -47,11 +47,23 @@ The test suite covers receipt ledger creation, separate batch records, FEFO orde
 
 ## Production next steps
 
-This is an MVP deliberately built on SQLite to be self-contained. Before deploying at scale: migrate to PostgreSQL, serve images through object storage, add refresh tokens/rate limits, build PDF invoice rendering and payment integrations, and expand test coverage for invoices, purchase orders, reports, notifications, and concurrency across database connections.
+Production uses PostgreSQL through `DATABASE_URL`; SQLite is retained only for the in-memory automated tests. For Cloud Run, use Cloud SQL or a managed PostgreSQL provider and keep credentials in Secret Manager.
 
 ## Mobile app
 
 The `mobile/` directory contains the React Native/Expo MediSales app. See [`mobile/README.md`](mobile/README.md) for setup, API configuration, and Android release steps.
+
+## Production database
+
+MediSales uses PostgreSQL in production and SQLite only for the automated test suite. Production startup requires `DATABASE_URL` and fails closed when it is missing.
+
+For local PostgreSQL development:
+
+```bash
+docker compose up --build
+```
+
+For Google Cloud Run, configure `DATABASE_URL` as a Secret Manager-backed environment variable pointing to Cloud SQL for PostgreSQL (preferably through the Cloud SQL connector) or a managed provider such as Neon/Supabase. Keep the database outside the container; Cloud Run's local filesystem is ephemeral.
 
 ## Docker deployment
 

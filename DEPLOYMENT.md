@@ -1,6 +1,31 @@
 # MediSales production deployment
 
-## Render deployment
+MediSales uses PostgreSQL in production and SQLite only for automated tests. Cloud Run is stateless, so do not use SQLite or a container-mounted database in production.
+
+## Google Cloud Run
+
+Build and deploy with Cloud Build:
+
+```bash
+gcloud builds submit --tag REGION-docker.pkg.dev/PROJECT_ID/medisales/api
+gcloud run deploy medisales-api \
+  --image REGION-docker.pkg.dev/PROJECT_ID/medisales/api \
+  --region REGION --allow-unauthenticated \
+  --set-env-vars NODE_ENV=production \
+  --set-secrets DATABASE_URL=medisales-database-url:latest,JWT_SECRET=medisales-jwt-secret:latest
+```
+
+Store `DATABASE_URL` and `JWT_SECRET` in Secret Manager. Point `DATABASE_URL` to Cloud SQL for PostgreSQL through the Cloud Run integration, or to a managed PostgreSQL provider such as Neon/Supabase. Cloud Run provides the public HTTPS URL automatically; verify `https://SERVICE-URL/api/health`.
+
+## Local PostgreSQL
+
+```bash
+docker compose up --build
+```
+
+This starts PostgreSQL and the API at `http://localhost:3000` with persistent local database storage. The Compose password is for local development only.
+
+## Legacy Render deployment
 
 The repository includes `render.yaml`, which provisions:
 

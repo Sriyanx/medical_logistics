@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: medisales
+      POSTGRES_USER: medisales
+      POSTGRES_PASSWORD: medisales_local_only
+    ports:
+      - "5432:5432"
+    volumes:
+      - medisales-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U medisales -d medisales"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  api:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOST: 0.0.0.0
+      DATABASE_URL: postgres://medisales:medisales_local_only@postgres:5432/medisales
+      JWT_SECRET: change-this-local-secret
+    ports:
+      - "3000:3000"
+
+volumes:
+  medisales-postgres:
