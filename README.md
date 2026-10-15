@@ -53,6 +53,22 @@ This is an MVP deliberately built on SQLite to be self-contained. Before deployi
 
 The `mobile/` directory contains the React Native/Expo MediSales app. See [`mobile/README.md`](mobile/README.md) for setup, API configuration, and Android release steps.
 
+## Docker deployment
+
+The repository root contains a production Dockerfile. Build and run it with a persistent host directory for SQLite:
+
+```bash
+docker build -t medisales-api .
+mkdir -p data
+docker run -d --name medisales-api \
+  -p 3000:3000 \
+  -v "$(pwd)/data:/data" \
+  -e JWT_SECRET="replace-with-a-long-random-secret" \
+  medisales-api
+```
+
+The container listens on port `3000`, binds to `0.0.0.0`, runs as the non-root `node` user, and stores the database at `/data/medical.db`. Put Caddy or another TLS reverse proxy in front of it for public HTTPS.
+
 ## Production hosting
 
 Render deployment configuration is in [`render.yaml`](render.yaml). Follow [`DEPLOYMENT.md`](DEPLOYMENT.md) to provision the API with managed HTTPS and a persistent SQLite disk.
