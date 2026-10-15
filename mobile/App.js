@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Platform, Pressable,
-  SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View
+  SafeAreaView, StyleSheet, Text, TextInput, View
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { clearSession, endpoints, getSession, restoreSession, setSession } from './src/api';
+import { clearSession, endpoints, restoreSession, setSession } from './src/api';
 
 const colors = { navy: '#12304A', blue: '#1464A5', teal: '#008A76', bg: '#F5F8FA', card: '#FFFFFF', text: '#172B4D', muted: '#64748B', border: '#D7E0E8', danger: '#C9372C', amber: '#A15C00' };
 const money = value => `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
