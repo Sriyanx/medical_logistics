@@ -48,3 +48,7 @@ The test suite covers receipt ledger creation, separate batch records, FEFO orde
 ## Production next steps
 
 This is an MVP deliberately built on SQLite to be self-contained. Before deploying at scale: migrate to PostgreSQL, serve images through object storage, add refresh tokens/rate limits, build PDF invoice rendering and payment integrations, and expand test coverage for invoices, purchase orders, reports, notifications, and concurrency across database connections.
+
+## Mobile app
+
+The `mobile/` directory contains the React Native/Expo MediSales app. See [`mobile/README.md`](mobile/README.md) for setup, API configuration, and Android release steps.
